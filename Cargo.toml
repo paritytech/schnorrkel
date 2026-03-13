@@ -14,6 +14,7 @@ edition = "2021"
 
 [dependencies]
 aead = { version = "0.5.2", default-features = false, optional = true }
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"], optional = true }
 arrayref = { version = "0.3.7", default-features = false }
 # needs to match parity-scale-code which is "=0.7.0"
 arrayvec = { version = "0.7.4", default-features = false }
@@ -67,3 +68,4 @@ getrandom = ["rand_core/getrandom", "getrandom_or_panic/getrandom", "aead?/getra
 # See https://github.com/rust-lang/cargo/issues/9210
 # and https://github.com/w3f/schnorrkel/issues/65#issuecomment-786923588
 aead = ["dep:aead"]
+ecies = ["dep:chacha20poly1305", "alloc", "aead"]

@@ -251,6 +251,9 @@ pub mod errors;
 #[cfg(all(feature = "aead", feature = "getrandom"))]
 pub mod aead;
 
+#[cfg(all(feature = "ecies", feature = "getrandom"))]
+pub mod ecies;
+
 #[cfg(feature = "alloc")]
 mod batch;
 
