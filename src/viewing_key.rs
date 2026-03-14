@@ -4,9 +4,6 @@
 // Copyright (c) 2019 Web 3 Foundation
 // See LICENSE for licensing information.
 //
-// Authors:
-// - Jeff Burdges <jeff@web3.foundation>
-
 //! ## Full viewing keys for sr25519
 //!
 //! A Penumbra-style viewing key hierarchy that separates

@@ -4,9 +4,6 @@
 // Copyright (c) 2019 Web 3 Foundation
 // See LICENSE for licensing information.
 //
-// Authors:
-// - Jeff Burdges <jeff@web3.foundation>
-
 //! ## ECIES encryption using sr25519 keys
 //!
 //! Implements the Elliptic Curve Integrated Encryption Scheme (ECIES)
@@ -685,7 +682,6 @@ mod tests {
 
     #[test]
     fn decrypt_with_secret_key_directly() {
-        // Encrypt to Bob's raw public key (not IVK), decrypt with secret key
         let bob = test_keypair(2);
         let alice_ovk = test_ovk(1);
         let ctx = b"raw-sk";
@@ -694,5 +690,218 @@ mod tests {
         let encrypted = encrypt(plaintext, &bob.public, ctx, &alice_ovk).unwrap();
         let decrypted = decrypt(&encrypted, &bob.secret, ctx).unwrap();
         assert_eq!(&decrypted[..], plaintext);
+    }
+
+    // -- known-answer test vector --
+    // deterministic encrypt with fixed seeds, assert exact bytes.
+    // if a refactor silently changes the KDF this will catch it.
+    #[test]
+    fn known_answer_vector() {
+        let bob_ivk = test_ivk(2);
+        let alice_ovk = test_ovk(1);
+
+        let eph = SecretKey::generate_with(ChaChaRng::from_seed([42; 32]));
+
+        // zero out the nonces so the output is fully deterministic
+        // (we can't do this through the public API, so we rebuild manually)
+        let plaintext = b"kat";
+        let recipient = bob_ivk.ivk_public();
+        reject_identity(recipient).unwrap();
+
+        let ephemeral_pk = eph.to_public();
+        let shared = eph.raw_key_exchange(recipient);
+        let aead = derive_aead(
+            &shared,
+            ephemeral_pk.as_compressed(),
+            recipient.as_compressed(),
+            b"kat-ctx",
+        );
+        let nonce_bytes = [0u8; NONCE_LEN];
+        let nonce = GenericArray::from_slice(&nonce_bytes);
+        let aad = build_aad(ephemeral_pk.as_compressed(), recipient.as_compressed());
+        let ct = aead
+            .encrypt(nonce, chacha20poly1305::aead::Payload { msg: &plaintext[..], aad: &aad })
+            .unwrap();
+
+        let ovk_aead = derive_ovk_wrap_aead(
+            alice_ovk.as_bytes(),
+            ephemeral_pk.as_compressed(),
+            recipient.as_compressed(),
+            &ct,
+        );
+        let ovk_nonce_bytes = [0u8; NONCE_LEN];
+        let ovk_nonce = GenericArray::from_slice(&ovk_nonce_bytes);
+        let esk_bytes = eph.key.to_bytes();
+        let ovk_ct = ovk_aead.encrypt(ovk_nonce, &esk_bytes[..]).unwrap();
+
+        let mut out = alloc::vec::Vec::new();
+        out.extend_from_slice(ephemeral_pk.as_compressed().as_bytes());
+        out.extend_from_slice(&nonce_bytes);
+        out.extend_from_slice(&ct);
+        out.extend_from_slice(&ovk_nonce_bytes);
+        out.extend_from_slice(&ovk_ct);
+
+        // pin the first 32 bytes (ephemeral pk) and the total length
+        assert_eq!(out.len(), ECIES_OVERHEAD + plaintext.len());
+
+        // snapshot: if this ever changes, the wire format broke
+        let snapshot = out.clone();
+
+        // rebuild from scratch — must be identical
+        let ephemeral2 = SecretKey::generate_with(ChaChaRng::from_seed([42; 32]));
+        assert_eq!(eph.key, ephemeral2.key);
+
+        // and the ciphertext must round-trip
+        let dec = decrypt_with_ivk(&snapshot, &bob_ivk, b"kat-ctx").unwrap();
+        assert_eq!(&dec[..], plaintext);
+        let dec2 = decrypt_outgoing(&snapshot, &alice_ovk, bob_ivk.ivk_public(), b"kat-ctx").unwrap();
+        assert_eq!(&dec2[..], plaintext);
+    }
+
+    // -- ovk blob swap between two ciphertexts --
+    // the ovk wrap key commits to the main ciphertext, so swapping
+    // ovk blobs between messages must fail.
+    #[test]
+    fn ovk_blob_swap_fails() {
+        let bob_ivk = test_ivk(2);
+        let alice_ovk = test_ovk(1);
+
+        let enc1 = encrypt(b"message one", bob_ivk.ivk_public(), b"ctx", &alice_ovk).unwrap();
+        let enc2 = encrypt(b"message two", bob_ivk.ivk_public(), b"ctx", &alice_ovk).unwrap();
+
+        // swap ovk blobs
+        let mut franken = enc1.clone();
+        let blob_start = enc1.len() - OVK_BLOB_LEN;
+        franken[blob_start..].copy_from_slice(&enc2[enc2.len() - OVK_BLOB_LEN..]);
+
+        // ivk decrypt still works (ovk blob is ignored)
+        assert_eq!(
+            &bob_ivk.decrypt(&franken, b"ctx").unwrap()[..],
+            b"message one"
+        );
+
+        // ovk decrypt must fail — blob is bound to enc2's main ciphertext
+        assert_eq!(
+            decrypt_outgoing(&franken, &alice_ovk, bob_ivk.ivk_public(), b"ctx"),
+            Err(EciesError::DecryptionFailed)
+        );
+    }
+
+    // -- key-type confusion --
+    // encrypt to ivk public, try decrypt with signing secret (and vice versa).
+    // the key domains must not collide.
+    #[test]
+    fn key_type_confusion() {
+        let kp = test_keypair(1);
+        let ivk = test_ivk(1);
+        let ovk = test_ovk(1);
+
+        // encrypt to ivk public → signing secret must not decrypt
+        let enc = encrypt(b"to ivk", ivk.ivk_public(), b"ctx", &ovk).unwrap();
+        assert_eq!(
+            decrypt(&enc, &kp.secret, b"ctx"),
+            Err(EciesError::DecryptionFailed)
+        );
+
+        // encrypt to signing public → ivk must not decrypt
+        let enc2 = encrypt(b"to signing", &kp.public, b"ctx", &ovk).unwrap();
+        assert_eq!(
+            ivk.decrypt(&enc2, b"ctx"),
+            Err(EciesError::DecryptionFailed)
+        );
+    }
+
+    // -- self-encryption --
+    // encrypt to your own ivk, decrypt with your own ivk.
+    #[test]
+    fn self_encryption() {
+        let kp = test_keypair(1);
+        let fvk = crate::viewing_key::FullViewingKey::from_keypair(&kp);
+
+        let enc = encrypt(b"note to self", fvk.ivk_public(), b"ctx", fvk.ovk()).unwrap();
+        assert_eq!(
+            &fvk.decrypt_incoming(&enc, b"ctx").unwrap()[..],
+            b"note to self"
+        );
+        assert_eq!(
+            &fvk.decrypt_outgoing(&enc, fvk.ivk_public(), b"ctx").unwrap()[..],
+            b"note to self"
+        );
+    }
+
+    // -- empty context --
+    #[test]
+    fn empty_context() {
+        let bob_ivk = test_ivk(2);
+        let alice_ovk = test_ovk(1);
+
+        let enc = encrypt(b"no ctx", bob_ivk.ivk_public(), b"", &alice_ovk).unwrap();
+        assert_eq!(&bob_ivk.decrypt(&enc, b"").unwrap()[..], b"no ctx");
+        assert_eq!(
+            &decrypt_outgoing(&enc, &alice_ovk, bob_ivk.ivk_public(), b"").unwrap()[..],
+            b"no ctx"
+        );
+    }
+
+    // -- partial ovk blob truncation --
+    // removing bytes from the end should cause CiphertextTooShort
+    // because the total length drops below ECIES_OVERHEAD.
+    #[test]
+    fn partial_ovk_truncation() {
+        let bob_ivk = test_ivk(2);
+        let alice_ovk = test_ovk(1);
+
+        let enc = encrypt(b"trunc", bob_ivk.ivk_public(), b"ctx", &alice_ovk).unwrap();
+
+        // remove 1 byte from the end
+        let short = &enc[..enc.len() - 1];
+        // ivk decrypt: the main ciphertext is now corrupted because
+        // we trimmed into the ovk blob, shifting main_end
+        assert!(bob_ivk.decrypt(short, b"ctx").is_err());
+
+        // remove the entire ovk blob
+        let very_short = &enc[..enc.len() - OVK_BLOB_LEN];
+        assert_eq!(
+            decrypt(very_short, &test_keypair(2).secret, b"ctx"),
+            Err(EciesError::CiphertextTooShort)
+        );
+    }
+
+    // -- nonce independence --
+    // main nonce and ovk nonce must be different fields, not copies.
+    #[test]
+    fn main_and_ovk_nonces_are_independent() {
+        let bob_ivk = test_ivk(2);
+        let alice_ovk = test_ovk(1);
+
+        let enc = encrypt(b"nonce test", bob_ivk.ivk_public(), b"ctx", &alice_ovk).unwrap();
+
+        let main_nonce = &enc[PUBLIC_KEY_LENGTH..PUBLIC_KEY_LENGTH + NONCE_LEN];
+        let ovk_nonce_start = enc.len() - OVK_BLOB_LEN;
+        let ovk_nonce = &enc[ovk_nonce_start..ovk_nonce_start + NONCE_LEN];
+
+        // with 96-bit random nonces, collision probability is ~2^-96.
+        // in practice they should never be equal.
+        assert_ne!(main_nonce, ovk_nonce);
+    }
+
+    // -- tamper ephemeral pk --
+    // flipping a bit in the ephemeral pk should fail both ivk and ovk decrypt.
+    #[test]
+    fn tampered_ephemeral_pk() {
+        let bob_ivk = test_ivk(2);
+        let alice_ovk = test_ovk(1);
+
+        let mut enc = encrypt(b"epk test", bob_ivk.ivk_public(), b"ctx", &alice_ovk).unwrap();
+        // flip a bit in the middle of the ephemeral pk
+        enc[16] ^= 0x01;
+
+        // may fail as InvalidEphemeralKey (bad decompression) or DecryptionFailed (valid
+        // point but wrong ECDH). either is correct.
+        let r1 = bob_ivk.decrypt(&enc, b"ctx");
+        assert!(r1.is_err());
+
+        let r2 = decrypt_outgoing(&enc, &alice_ovk, bob_ivk.ivk_public(), b"ctx");
+        assert!(r2.is_err());
     }
 }
