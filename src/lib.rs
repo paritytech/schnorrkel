@@ -254,6 +254,9 @@ pub mod aead;
 #[cfg(all(feature = "ecies", feature = "getrandom"))]
 pub mod ecies;
 
+#[cfg(all(feature = "ecies", feature = "getrandom"))]
+pub mod viewing_key;
+
 #[cfg(feature = "alloc")]
 mod batch;
 
