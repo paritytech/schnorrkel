@@ -37,7 +37,6 @@ use core::borrow::{Borrow};  // BorrowMut
 #[cfg(feature = "alloc")]
 use alloc::{collections::btree_map::{BTreeMap, Entry}};
 
-use arrayref::array_ref;
 use arrayvec::ArrayVec;
 
 use merlin::Transcript;
@@ -250,7 +249,11 @@ impl Reveal {
 
     #[allow(non_snake_case)]
     fn iter_points<'a>(&'a self) -> impl Iterator<Item=CompressedRistretto> + 'a {
-        self.0.chunks(32).map( |R| CompressedRistretto( *array_ref![R,0,32] ) )
+        // use arrayref::array_ref;
+        self.0.chunks(32).map( |R| CompressedRistretto(
+            // *array_ref![R,0,32]
+            <[u8; 32]>::try_from(R).unwrap()
+        ) )
     }
 
     fn to_commitment(&self) -> SignatureResult<Commitment> {

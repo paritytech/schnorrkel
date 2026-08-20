@@ -1,6 +1,6 @@
 [package]
 name = "schnorrkel"
-version = "0.11.5"
+version = "0.11.6"
 authors = ["Jeff Burdges <jeff@web3.foundation>"]
 readme = "README.md"
 license = "BSD-3-Clause"
@@ -14,7 +14,7 @@ edition = "2021"
 
 [dependencies]
 aead = { version = "0.5.2", default-features = false, optional = true }
-arrayref = { version = "0.3.7", default-features = false }
+# arrayref = { version = "0.3.7", default-features = false }
 # needs to match parity-scale-code which is "=0.7.0"
 arrayvec = { version = "0.7.4", default-features = false }
 curve25519-dalek = { version = "4.1.3", default-features = false, features = [

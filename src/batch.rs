@@ -368,7 +368,9 @@ impl PreparedBatch {
         let mut read = || {
             let (head, tail) = bytes.split_at(32);
             bytes = tail;
-            *array_ref![head, 0, 32]
+            // use arrayref::array_ref;
+            // *array_ref![head, 0, 32]
+            <[u8; 32]>::try_from(head).unwrap()
         };
         let mut bs = read();
         bs[31] &= 127;
