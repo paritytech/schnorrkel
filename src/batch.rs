@@ -10,6 +10,19 @@
 // - isis agora lovecruft <isis@patternsinthevoid.net>
 
 //! ### Schnorr signature batch verification.
+//!
+//! As a rule, batch verification only proves that the given public keys  
+//! signed the given messages or transcripts, but batch verification does
+//! not typically imply the individual validity of the specific signatures
+//! within the batch.  There is typically no problme here becuase batch
+//! verification is too expensive to be used on unauthenticated inputs
+//! from users.  Instead, one party first performs individual verifications
+//! and then makes some claim of validity for the full batch, so that
+//! if wrong a known party take the blame.
+//!
+//! We suggest using the batch verification based upon system randomness
+//! if you want batch verification to imply the individual validity of
+//! some given signatures, despite the denial-of-service attack this creates.
 
 #![allow(clippy::manual_is_multiple_of)]
 
@@ -144,7 +157,8 @@ where
 {
     assert!(signatures.len() == public_keys.len(), "{}", ASSERT_MESSAGE);  // Check transcripts length below
 
-    let (zs, hrams) = prepare_batch(transcripts, signatures, public_keys, rng);
+    let seed = make_s_seed(signatures);
+    let (zs, hrams) = prepare_batch(&seed[..], transcripts, signatures, public_keys, rng);
 
     // Compute the basepoint coefficient, ∑ s[i]z[i] (mod l)
     let bs: Scalar = signatures.iter()
@@ -154,6 +168,19 @@ where
         .sum();
 
     verify_batch_equation( bs, zs, hrams, signatures, public_keys, deduplicate_public_keys )
+}
+
+// This could really by just 16 bytes.
+type Seed = [u8; 32];
+
+fn make_s_seed(signatures: &[Signature]) -> Seed {
+    let mut seed_t = merlin::Transcript::new(b"seed");
+    for sig in signatures {
+        seed_t.append_message(b"s",&sig.s.to_bytes()[..])
+    }
+    let mut seed = [0u8; 32];
+    seed_t.challenge_bytes(b"seed",&mut seed);
+    seed
 }
 
 trait HasR {
@@ -176,6 +203,7 @@ impl HasR for CompressedRistretto {
 #[allow(non_snake_case)]
 #[rustfmt::skip]
 fn prepare_batch<T,I,R>(
+    seed: &[u8],
     transcripts: I,
     signatures: &[impl HasR],
     public_keys: &[PublicKey],
@@ -186,9 +214,9 @@ where
     I: IntoIterator<Item=T>,
     R: RngCore+CryptoRng,
 {
-
     // Assumulate public keys, signatures, and transcripts for pseudo-random delinearization scalars
     let mut zs_t = merlin::Transcript::new(b"V-RNG");
+    zs_t.append_message(b"seed",seed);
     for pk in public_keys {
         zs_t.commit_point(b"",pk.as_compressed());
     }
@@ -294,8 +322,25 @@ fn verify_batch_equation(
 /// variantsof Schnorr signatures" by  Konstantinos Chalkias,
 /// François Garillot, Yashvanth Kondi, and Valeria Nikolaenko
 /// available from https://eprint.iacr.org/2021/350.pdf
+///
+/// `PreparedBatch` is itself a signature, whose validity proves the
+/// given public keys signed the given messages or transcripts, but
+/// `PreparedBatch` does not imply validity for any individual signatures
+/// including those from which it was created.
+///
+/// In practice, one could never draw such conclusions anyways, because
+/// attempting to do so creates a denial-of-service attack.  Yet, there
+/// is academic literature that makes the mistake of believing such
+/// implications.
+///
+/// Instead, any protocol using half-aggregation aka prepared batch
+/// verifications requires that some identified party first performs
+/// all the individual verifications and then makes a claim of validity
+/// for the full batch, so that if wrong this known party take the blame,
+/// and their spam blocked.
 #[allow(non_snake_case)]
 pub struct PreparedBatch {
+    seed: Seed,
     bs: Scalar,
     Rs: Vec<CompressedRistretto>,
 }
@@ -315,7 +360,8 @@ impl PreparedBatch {
     {
         assert!(signatures.len() == public_keys.len(), "{}", ASSERT_MESSAGE);  // Check transcripts length below
 
-        let (zs, _hrams) = prepare_batch(transcripts, signatures, public_keys, NotAnRng);
+        let seed = make_s_seed(signatures);
+        let (zs, _hrams) = prepare_batch(&seed, transcripts, signatures, public_keys, NotAnRng);
 
         // Compute the basepoint coefficient, ∑ s[i]z[i] (mod l)
         let bs: Scalar = signatures.iter()
@@ -325,7 +371,7 @@ impl PreparedBatch {
             .sum();
 
         let Rs = signatures.iter().map(|sig| sig.R).collect();
-        PreparedBatch { bs, Rs, }
+        PreparedBatch { seed, bs, Rs, }
     }
 
     /// Verify a half-aggregated aka prepared batch signature
@@ -343,7 +389,7 @@ impl PreparedBatch {
     {
         assert!(self.Rs.len() == public_keys.len(), "{}", ASSERT_MESSAGE);  // Check transcripts length below
 
-        let (zs, hrams) = prepare_batch(transcripts, self.Rs.as_slice(), public_keys, NotAnRng);
+        let (zs, hrams) = prepare_batch(&self.seed, transcripts, self.Rs.as_slice(), public_keys, NotAnRng);
 
         verify_batch_equation(
             self.bs,
@@ -356,8 +402,8 @@ impl PreparedBatch {
     /// Reads a `PreparedBatch` from a correctly sized buffer
     #[allow(non_snake_case)]
     pub fn read_bytes(&self, mut bytes: &[u8]) -> SignatureResult<PreparedBatch> {
-        use arrayref::array_ref;
-        if bytes.len() % 32 != 0 || bytes.len() < 64 {
+
+        if bytes.len() % 32 != 0 || bytes.len() < 3*32 {
             return Err(SignatureError::BytesLengthError {
                 name: "PreparedBatch",
                 description: "A Prepared batched signature",
@@ -372,6 +418,7 @@ impl PreparedBatch {
             // *array_ref![head, 0, 32]
             <[u8; 32]>::try_from(head).unwrap()
         };
+        let seed = read();
         let mut bs = read();
         bs[31] &= 127;
         let bs = super::sign::check_scalar(bs)?;
@@ -379,7 +426,7 @@ impl PreparedBatch {
         for _ in 0..l {
             Rs.push(CompressedRistretto(read()));
         }
-        Ok(PreparedBatch { bs, Rs })
+        Ok(PreparedBatch { seed, bs, Rs })
     }
 
     /// Returns buffer size required for serialization
@@ -393,6 +440,7 @@ impl PreparedBatch {
     pub fn write_bytes(&self, mut bytes: &mut [u8]) {
         assert!(bytes.len() == self.byte_len());
         let mut place = |s: &[u8]| reserve_mut(&mut bytes, 32).copy_from_slice(s);
+        place(&self.seed[..]);
         let mut bs = self.bs.to_bytes();
         bs[31] |= 128;
         place(&bs[..]);
