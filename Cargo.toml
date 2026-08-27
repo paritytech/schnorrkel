@@ -13,7 +13,7 @@ exclude = [".gitignore", "res/*"]
 edition = "2021"
 
 [dependencies]
-aead = { version = "0.5.2", default-features = false, optional = true }
+aead = { version = "0.6.1", default-features = false, optional = true }
 # arrayref = { version = "0.3.7", default-features = false }
 # needs to match parity-scale-code which is "=0.7.0"
 arrayvec = { version = "0.7.4", default-features = false }
