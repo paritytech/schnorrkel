@@ -27,10 +27,8 @@ regarded as a pointer, not a recommendation.
 
 use aead::{
     KeyInit, KeySizeUser,
-    generic_array::{GenericArray},
+    generic_array::{typenum::U32, GenericArray},
 };
-
-use curve25519_dalek::digest::generic_array::typenum::{U32};
 
 use curve25519_dalek::{
     ristretto::{CompressedRistretto}, // RistrettoPoint

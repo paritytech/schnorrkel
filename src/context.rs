@@ -16,7 +16,7 @@ use rand_core::{RngCore, CryptoRng};
 use merlin::Transcript;
 
 use curve25519_dalek::digest::{Update, FixedOutput, ExtendableOutput, XofReader};
-use curve25519_dalek::digest::generic_array::typenum::{U32, U64};
+use curve25519_dalek::digest::consts::{U32, U64};
 
 use curve25519_dalek::ristretto::CompressedRistretto; // RistrettoPoint
 use curve25519_dalek::scalar::Scalar;
