@@ -697,8 +697,7 @@ impl<T: SigningTranscript+Clone> MuSig<T,CosignStage> {
     pub fn sign(&self) -> Option<Signature> {
         // if self.uncosigned().all(|_| false) { return None; }  // TODO:  why does this fail?
         if self.uncosigned().last().is_some() { return None; }
-        let s: Scalar = self.Rs.iter()
-            .filter_map( |(_pk,cor)| match cor {
+        let s: Scalar = self.Rs.values().filter_map( |cor| match cor {
                 CoR::Commit(_) => None,
                 CoR::Reveal(_) => panic!("Internal error, MuSig<T,CosignStage>::uncosigned broken."),
                 CoR::Cosigned { s, .. } => Some(s),
