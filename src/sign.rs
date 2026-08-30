@@ -57,7 +57,7 @@ pub struct Signature {
 
 impl Debug for Signature {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "Signature( R: {:?}, s: {:?} )", &self.R, &self.s)
+        write!(f, "Signature( R: {:?}, s: {:?} )", self.R, self.s)
     }
 }
 

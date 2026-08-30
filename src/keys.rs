@@ -371,7 +371,7 @@ pub struct SecretKey {
 
 impl Debug for SecretKey {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "SecretKey {{ key: {:?} nonce: {:?} }}", &self.key, &self.nonce)
+        write!(f, "SecretKey {{ key: {:?} nonce: {:?} }}", self.key, self.nonce)
     }
 }
 
