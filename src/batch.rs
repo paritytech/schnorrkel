@@ -356,7 +356,6 @@ impl PreparedBatch {
     /// Reads a `PreparedBatch` from a correctly sized buffer
     #[allow(non_snake_case)]
     pub fn read_bytes(&self, mut bytes: &[u8]) -> SignatureResult<PreparedBatch> {
-        use arrayref::array_ref;
         if bytes.len() % 32 != 0 || bytes.len() < 64 {
             return Err(SignatureError::BytesLengthError {
                 name: "PreparedBatch",

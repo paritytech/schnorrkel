@@ -310,8 +310,8 @@ impl Keypair {
     /// ```
     /// use schnorrkel::{Signature,Keypair};
     /// use rand::prelude::*; // ThreadRng,thread_rng
-    /// use sha3::Shake128;
-    /// use sha3::digest::{Update};
+    /// use shake::Shake128;
+    /// use shake::digest::{Update};
     ///
     /// # #[cfg(all(feature = "std"))]
     /// # fn main() {
@@ -336,14 +336,14 @@ impl Keypair {
     /// ```
     /// # use schnorrkel::{Keypair,Signature,signing_context};
     /// # use rand::prelude::*; // ThreadRng,thread_rng
-    /// # use sha3::digest::Update;
+    /// # use shake::digest::Update;
     /// #
     /// # #[cfg(all(feature = "std"))]
     /// # fn main() {
     /// # let mut csprng: ThreadRng = thread_rng();
     /// # let keypair: Keypair = Keypair::generate_with(&mut csprng);
     /// # let message: &[u8] = b"All I want is to pet all of the dogs.";
-    /// # let prehashed = sha3::Shake256::default().chain(message);
+    /// # let prehashed = shake::Shake256::default().chain(message);
     /// #
     /// let ctx = signing_context(b"My Signing Context");
     ///
@@ -428,7 +428,7 @@ impl Keypair {
 
 #[cfg(test)]
 mod test {
-    use sha3::Shake128;
+    use shake::Shake128;
     use curve25519_dalek::digest::{Update};
 
     use super::super::*;

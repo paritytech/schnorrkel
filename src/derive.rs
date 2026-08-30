@@ -377,8 +377,8 @@ impl ExtendedKey<SecretKey> {
 
 #[cfg(test)]
 mod tests {
-    use sha3::digest::{Update}; // ExtendableOutput,XofReader
-    use sha3::{Shake128};
+    use shake::digest::{Update}; // ExtendableOutput,XofReader
+    use shake::{Shake128};
 
     use super::*;
 

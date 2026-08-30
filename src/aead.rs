@@ -27,10 +27,9 @@ regarded as a pointer, not a recommendation.
 
 use aead::{
     KeyInit, KeySizeUser,
-    generic_array::{GenericArray},
+    consts::U32,
+    array::Array,
 };
-
-use curve25519_dalek::digest::generic_array::typenum::{U32};
 
 use curve25519_dalek::{
     ristretto::{CompressedRistretto}, // RistrettoPoint
@@ -46,7 +45,7 @@ where
     T: SigningTranscript,
     AEAD: KeyInit,
 {
-    let mut key: GenericArray<u8, <AEAD as KeySizeUser>::KeySize> = Default::default();
+    let mut key: Array<u8, <AEAD as KeySizeUser>::KeySize> = Default::default();
     t.challenge_bytes(b"", key.as_mut_slice());
     AEAD::new(&key)
 }
@@ -74,7 +73,7 @@ impl SecretKey {
     where
         AEAD: KeyInit<KeySize = U32>,
     {
-        let mut key: GenericArray<u8, <AEAD as KeySizeUser>::KeySize> = Default::default();
+        let mut key: Array<u8, <AEAD as KeySizeUser>::KeySize> = Default::default();
         key.clone_from_slice(self.raw_key_exchange(public).as_bytes());
         AEAD::new(&key)
     }
